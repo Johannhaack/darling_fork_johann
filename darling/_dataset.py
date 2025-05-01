@@ -409,6 +409,44 @@ class DataSet(object):
             print("\ndone! Total time was : " + str(tot_time) + " s")
 
         return self.mean_3d, self.covariance_3d
+    
+    def transform_to_global_coordinate_system(self, pixel_size = [1,1,1], scan_ids = None, translation_vector = None, rotation_vector = None, aspect = None):
+
+        """This function takes the (x,y,z) postion [center positions] of the hexapod and the angular orientation mu, omega and center of chi,phi 
+        and gives back the transformed coordinates space of the full field of view registered on the detector
+        We expect that only the z position if multiple scan_ids are provided
+
+        Args: 
+            pixel_size (:obj:`list`): The pixel size of the detector in microns, defaults to [1,1,1] for both 2D and 3D Data.
+            scan_ids (:obj:`list`): List of scan ids, if the coordinate system is a layer mosa scan, if scan ids we get the scan ids from a metadata function 
+            translation_vector (:obj:`numpy.ndarray`): The translation vector of the hexapod in microns, defaults to None.
+            rotation_vector (:obj:`numpy.ndarray`): The rotation vector of the hexapod in radians, defaults to None.
+            aspect (:obj:`float`): The aspect ratio of the detector, defaults to None.
+
+        Returns:
+            :obj:`numpy.ndarray`: The transformed coordinates of the full field of view registered on the detector.
+
+        """
+
+        if type(translation_vector) != np.ndarray:
+            try:
+                translation_vector = np.array(translation_vector).astype(float)
+            except:
+                raise TypeError("translation vector should be a numpy array or a list of floats")
+
+        if type(rotation_vector) != np.ndarray:
+            try:
+                rotation_vector = np.array(rotation_vector).astype(float)
+            except:
+                raise TypeError("translation vector should be a numpy array or a list of floats")
+        if self.data is None:
+            detector_size = 2048,2048
+        else:
+            detector_size = self.data.shape[0],self.data.shape[1]
+
+        self.global_coord_system = darling.multigrain_visualizer.transform_to_global_coordinate_system(self.reader,detector_size, pixel_size, scan_ids, translation_vector, rotation_vector, aspect)
+
+        return self.global_coord_system
 
     def to_paraview(self, file):
         """Write moment maps to paraview readable format for 3D visualisation.

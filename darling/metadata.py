@@ -67,6 +67,20 @@ class ID03(object):
             "ccmth": "instrument/positioners/ccmth",
         }
 
+        #These are the expected h5 mappings between the motor positions and the 
+        self.position_map = {
+            "ux": "instrument/positioners/ux", 
+            "uy": "instrument/positioners/uy",
+            "uz": "instrument/positioners/uz",
+            "chi": "instrument/positioners/chi",
+            "phi": "instrument/positioners/phi",
+            "mu": "instrument/positioners/mu",
+            "omega": "instrument/positioners/omega",
+            "obpitch":"instrument/positioners/obpitch'"
+        }
+
+    #Ask Axel what he thinks of it, we want to be disattached from the ESRF file system so this needs to be either in reader or in metadata, do we need it in call though
+
     def __call__(self, scan_id):
         """Return a dictionary of scan parameters, including scan shape, motor names etc.
 
@@ -101,6 +115,7 @@ class ID03(object):
         scan_params["data_name"] = self._get_data_name(
             scan_id, scan_params["scan_shape"]
         )
+        scan_params["motor_values"] = self._get_motor_values(scan_id)
         return scan_params
 
     def _get_scan_command(self, scan_id):
@@ -149,6 +164,16 @@ class ID03(object):
             self.motor_map[params[i]] for i in self.scan_arg_pos["motor_names"][command]
         ]
         return motor_names
+    
+    def _get_motor_values(self, scan_id):
+        """Fetch the different motor values from the h5 file"""
+
+        with h5py.File(self.abs_path_to_h5_file, "r") as h5f:
+            motor_values = {}
+            for position, path in self.position_map.items():
+                motor_values[position] = h5f[scan_id][path][()]
+        return motor_values
+
 
     def _get_integrated_motors(self, scan_params):
         """Mark the motor names that are integrated in the scan command.
@@ -191,3 +216,27 @@ class ID03(object):
                 ):
                     return leaf
         raise ValueError("No dataset found in h5 file")
+
+
+
+#It makes no sense to add getting the scanids to this class but a function to get them here can make sense, what we might need to think about is having it as an individual reader were we automatically have it, but we dont really wnat to read all at the saem time? => Actuially for fitting over the full 3D it might be interesting but we dont look at the neigbours at all in the moment
+    
+def get_ordered_scan_ids(abs_path_to_h5_file):
+    """Get the scan ids of a mosa scan from the h5 file.
+    
+    Args:
+        abs_path_to_h5_file (str): The absolute path to the h5 file.
+    
+    Returns:
+        :obj:`list` of :obj:`str`: The scan ids of the mosa scan.
+    """
+
+    scan_ids = []
+    with h5py.File(abs_path_to_h5_file, "r") as h5f:
+        for k in list(h5f.keys()):
+            if k.split('.')[1]=='1':
+                scan_ids.append(k)
+        scan_ids.sort(key=lambda x: int(x.split('.')[0]))
+    scan_ids = np.array(scan_ids)
+
+    return scan_ids
