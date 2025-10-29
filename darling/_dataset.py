@@ -428,13 +428,13 @@ class DataSet(object):
 
         """
 
-        if type(translation_vector) != np.ndarray:
+        if translation_vector is not None and  type(translation_vector) != np.ndarray :
             try:
                 translation_vector = np.array(translation_vector).astype(float)
             except:
                 raise TypeError("translation vector should be a numpy array or a list of floats")
 
-        if type(rotation_vector) != np.ndarray:
+        if rotation_vector is not None and type(rotation_vector) != np.ndarray:
             try:
                 rotation_vector = np.array(rotation_vector).astype(float)
             except:

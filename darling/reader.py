@@ -118,6 +118,57 @@ class MosaScan(Reader):
         return data, motors
 
 
+class Darks(MosaScan):
+    """Load a series of motorless images. This is a id03 specific implementation matphing aspecific beamline mosa scan macro.
+
+    Typically used to red dark images collected with a loopscan.
+
+    NOTE: This reader was specifically written for data collection at id03. For general purpose reading of data you
+    must implement your own reader class. The exact reding of data is strongly dependent on data aqusition scheme and
+    data structure implementation.
+
+    Args:
+        abs_path_to_h5_file str (:obj:`str`): absolute path to the h5 file with the diffraction images.
+    """
+
+    def __call__(self, scan_id, roi=None):
+        """Load a scan
+
+        this loads the static scan data array with shape a,b,m where a,b are the detector dimensions and
+        m is the number of (motorless) images. You may view the implemented darling readers as example templates
+        for implementing your own reader.
+
+        Args:
+            scan_id (:obj:`str`):scan id to load from, e.g 1.1, 2.1 etc...
+            roi (:obj:`tuple` of :obj:`int`): row_min row_max and column_min and column_max,
+                defaults to None, in which case all data is loaded
+
+        Returns:
+            data, motors : data of shape=(a,b,m) and an empty motor array.
+
+        """
+
+        self.scan_params = self.config(scan_id)
+
+        with h5py.File(self.abs_path_to_h5_file, "r") as h5f:
+
+            motors = np.array([], dtype=np.float32)
+
+            if roi:
+                r1, r2, c1, c2 = roi
+                data = h5f[scan_id][self.scan_params["data_name"]][:, r1:r2, c1:c2]
+            else:
+                data = h5f[scan_id][self.scan_params["data_name"]][:, :, :]
+
+            data = data.reshape(
+                (*self.scan_params["scan_shape"], data.shape[-2], data.shape[-1])
+            )
+            data = data.swapaxes(0, -2)
+            data = data.swapaxes(1, -1)
+
+        return data, motors
+        
+
 class RockingScan(MosaScan):
     """Load a 1D rocking scan. This is a id03 specific implementation matphing aspecific beamline mosa scan macro.
 

@@ -13,12 +13,18 @@
 import numpy as np
 import scipy.ndimage 
 import pyvista as pv
+import IPython
+import colorsys
 
 import darling
 
+def _generate_distinct_colors(n):
+    """This is made to generate differentiable colours for the point clouds"""
+    hues = np.linspace(0, 1, n, endpoint=False)
+    colors = [colorsys.hsv_to_rgb(h, 0.8, 0.9) for h in hues]
+    return colors
 
 def create_local_coordinate_system(size, pixel_size, aspect):
-    # mask_volume: shape (x, y, z)
     
     x_size, y_size, z_size = size
     pixel_size_x = pixel_size[0] * aspect
@@ -103,47 +109,98 @@ def overlapping_mask_assignment():
     pass
 
 def get_grain_points_list(global_coordinates, mask):
-    """This function takes a 3D mask [x,y,z] and the global coordinates system [x,y,z,3] and returns a list of points."""
+    """This function takes a 3D mask [x,y,z] and the global coordinates system [x,y,z,3] and returns a list of points.
+        2D expects an input of z=1
+    """
     #check if the x,y,z dimesnion is the same
     if global_coordinates.shape[0] != mask.shape[0]:
         raise ValueError("The x dimension of the global coordinates and the mask do not match")
     if global_coordinates.shape[1] != mask.shape[1]:
         raise ValueError("The y dimension of the global coordinates and the mask do not match")
+    if global_coordinates.ndim ==3 or mask.ndim ==2:
+        raise ValueError("2D Visualization is possible, when an 1 dimensional z dimension is added")
     if global_coordinates.shape[2] != mask.shape[2]:
         raise ValueError("The z dimension of the global coordinates and the mask do not match")
     
     return global_coordinates[mask]
 
-def plot_n_grains_volume(point_list, point_density=0.1)):
+def plot_n_grains_volume(point_list, grain_names = None, point_density=0.05):
     #I dont like this, would be greatr if they are bundled automatically, so the system or not mixed by accident, so you just pass the points here, and we do another function that get the points list
-    """This function takes a list of list of 3D points, each inner lkist corresponds to a grain, and plots them in 3D using pyvista
+    """This function takes a list of list of 3D points, each inner list corresponds to a grain, and plots them in 3D using pyvista
 
     Args:
         point_list (list): List of list of 3D points
+        grain_names (list): Corresponding Grain Names of the 3D points clouds, must correspind to the order of the list
         point_density (float): There is a point limit where pyvista works, with the desnity we can choose how much of that max point number we want
     
     """
-    
-    pass
+    if IPython.get_ipython() is not None:
+        pv.start_xvfb()  # Needed for headless Jupyter
+        pv.set_jupyter_backend('trame') #trame
+
+        notebook = True
+    else:
+        notebook = False
+
+    print(type(point_list))
+    if grain_names is not None and len(point_list) == len(grain_names):
+        raise ValueError("Number of points cloud must match the grains names")  
+
+    #module to reduce points
+    max_points = 500000
+    point_per_grain = max_points / len(point_list)*point_density
+    sampled_points =[]
+
+    for cloud in point_list:
+        print(cloud.shape[0])
+        if cloud.shape[0] < point_per_grain:
+            point_per_grain = cloud.shape[0]
+
+        idx = np.random.choice(cloud.shape[0], size=int(point_per_grain), replace=False)
+        points_sampled = cloud[idx]
+        sampled_points.append(points_sampled)
+
+
+    colors = _generate_distinct_colors(len(sampled_points))
+
+    plotter = pv.Plotter(notebook=notebook)
+
+
+    legend_entries = []
+
+    if grain_names is None:
+        grain_names = []
+        for i in range(len(sampled_points)):
+            grain_names.append(f"Grain {i}")
+
+    for i, (points, color) in enumerate(zip(sampled_points, colors)):
+        cloud = pv.PolyData(points)
+        plotter.add_mesh(cloud, color=color, render_points_as_spheres=True, point_size=3, label=grain_names[i])
+        legend_entries.append([grain_names[i], color])
+
+    plotter.add_legend(legend_entries)
+
+    plotter.show() 
+
 
 def get_translation_vector(reader, scan_ids):
 
-    motor_values = reader.config(scan_ids[0])["motor_values"]
 
-    ux = motor_values["ux"]
-    uy = motor_values["uy"]
+    #This is only for uz as we expect ux and  the rest to be the same for the scans
 
-    #This is only for uz as we expect the rest to be the same for the scans
-
+    ux_values_list = []
+    uy_values_list = []
     uz_values_list = []
 
     for scan_id in scan_ids:
         motor_values_scan = reader.config(scan_id)["motor_values"]
+        ux_values_list.append(motor_values_scan["ux"])
+        uy_values_list.append(motor_values_scan["uy"])
         uz_values_list.append(motor_values_scan["uz"])
-        print(motor_values_scan["uz"])
 
+    ux = np.mean(np.array(ux_values_list))
+    uy = np.mean(np.array(uy_values_list))
     uz = np.mean(np.array(uz_values_list))
-
     #Here we are swiching y and x as the naming on the detector has first axis as y, the transformations are made on x being the first axis though
     translation_vector = np.array([uy*1000, ux*1000, uz*1000])
 
@@ -179,7 +236,7 @@ def transform_to_global_coordinate_system(reader, detector_size, pixel_size, sca
     """The pixel size needs to be in microns"""
     if scan_ids is None:
         #look for the scan ids in the reader
-        scan_ids = darling.metadata.get_scan_ids(reader.abs_path_to_h5_file)
+        scan_ids = darling.metadata.get_ordered_scan_ids(reader.abs_path_to_h5_file)
 
         if len(scan_ids) == 0:
             Exception("No scan ids provided, please provide them still need to implement automatic search for it")    
@@ -197,14 +254,16 @@ def transform_to_global_coordinate_system(reader, detector_size, pixel_size, sca
     size_z = len(scan_ids)
 
     size = (size_x, size_y, size_z)
+
     #Create the local coordinate system
     initial_coord_system = create_local_coordinate_system(size, pixel_size, aspect)
-    #Apply the translation
-    translated_coord_system = coordinate_translation(translation_vector, initial_coord_system)
-    #Apply the rotation
-    rotated_coord_system = coordinate_rotation(rotation_vector, translated_coord_system)
 
-    return rotated_coord_system
+    rotated_coord_system = coordinate_rotation(rotation_vector, initial_coord_system)
+    #Apply the translation
+    final_coord_system = coordinate_translation(translation_vector, rotated_coord_system)
+    
+
+    return final_coord_system
 
 
 

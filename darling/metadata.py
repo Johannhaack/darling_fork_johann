@@ -36,6 +36,7 @@ class ID03(object):
                 "a2scan": [6, 6],
                 "d2scan": [6, 6],
                 "fscan2d": [3, 7],
+                "loopscan": [0],
             },
             "motor_names": {
                 "ascan": [0],
@@ -53,6 +54,7 @@ class ID03(object):
             "a2scan": [False, False],
             "d2scan": [False, False],
             "fscan2d": [False, True],
+            "loopscan":[None],
         }
 
         # These are the expected h5 mappings between the scan command motor names and the
@@ -76,7 +78,7 @@ class ID03(object):
             "phi": "instrument/positioners/phi",
             "mu": "instrument/positioners/mu",
             "omega": "instrument/positioners/omega",
-            "obpitch":"instrument/positioners/obpitch'"
+            "obpitch":"instrument/positioners/obpitch"
         }
 
     #Ask Axel what he thinks of it, we want to be disattached from the ESRF file system so this needs to be either in reader or in metadata, do we need it in call though
@@ -110,7 +112,7 @@ class ID03(object):
         scan_params = {}
         scan_params["scan_command"] = self._get_scan_command(scan_id)
         scan_params["scan_shape"] = self._get_scan_shape(scan_params)
-        scan_params["motor_names"] = self._get_motor_names(scan_params)
+        scan_params["motor_names"] = self._get_motor_names(scan_params, scan_id)
         scan_params["integrated_motors"] = self._get_integrated_motors(scan_params)
         scan_params["data_name"] = self._get_data_name(
             scan_id, scan_params["scan_shape"]
@@ -152,7 +154,7 @@ class ID03(object):
                 scan_shape[i] += 1
         return scan_shape
 
-    def _get_motor_names(self, scan_params):
+    def _get_motor_names(self, scan_params, scan_id):
         """Fetch motor names from the scan command.
 
         Returns:
@@ -160,9 +162,23 @@ class ID03(object):
         """
         command = scan_params["scan_command"].split(" ")[0]
         params = scan_params["scan_command"].split(" ")[1:]
+
+        if command=='loopscan':
+            return None
+
         motor_names = [
             self.motor_map[params[i]] for i in self.scan_arg_pos["motor_names"][command]
         ]
+
+        # hack for inconsistent mu saving...
+        for i, motor_name in enumerate(motor_names):
+            if motor_name=='instrument/positioners/mu':
+                try:
+                    with h5py.File(self.abs_path_to_h5_file, "r") as h5f:
+                        if len(h5f[scan_id][motor_name])==1:
+                            raise ValueError()
+                except:
+                    motor_names[i] = 'instrument/mu/data'
         return motor_names
     
     def _get_motor_values(self, scan_id):
